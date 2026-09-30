@@ -1,0 +1,411 @@
+---
+title: "Prompt, Run, Verify"
+author: "Heather Mattie, PhD · Harvard T.H. Chan School of Public Health"
+subtitle: 'Student Guide · Workshop 3: Using LLMs for Data Analysis in Public Health'
+output:
+  word_document:
+    toc: true
+    toc_depth: '2'
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = TRUE, error = TRUE,
+                      comment = "##")
+library(tidyverse)
+dat <- read_csv("nhanes_workshop.csv", show_col_types = FALSE) %>%
+  mutate(bmi = na_if(bmi, 999))
+```
+
+```{css, echo=FALSE}
+body { font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; color: #2A1E21; background: #FCFAF8; font-size: 16px; line-height: 1.6; }
+.main-container { max-width: 1000px; }
+h1, h2, h3, h4, .title { font-family: 'Source Serif 4', Georgia, serif; color: #2A1E21; font-weight: 600; }
+h1.title { color: #A51C30; font-size: 44px; margin-top: 24px; }
+h1 { border-bottom: 3px solid #A51C30; padding-bottom: 6px; margin-top: 48px; font-size: 30px; }
+h2 { font-size: 23px; margin-top: 28px; }
+h3 { font-size: 19px; margin-top: 22px; }
+.subtitle { color: #5F5256; font-size: 20px; }
+.author { color: #5F5256; font-size: 15px; }
+a, a:visited { color: #A51C30; }
+pre, code { font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace; font-size: 14px; }
+pre { background: #FFFFFF; border: 1px solid #E8D3D7; border-radius: 8px; white-space: pre-wrap; }
+pre.r { background: #F7ECEE; }
+code { color: #7E1526; background: #F7ECEE; }
+pre code { color: inherit; background: none; }
+table { width: 100%; margin: 12px 0 20px; border-collapse: collapse; background: #FFFFFF; }
+th { background: #F7ECEE; color: #2A1E21; border-bottom: 2px solid #A51C30 !important; }
+td, th { padding: 8px 10px !important; vertical-align: top; border-top: 1px solid #E8D3D7; }
+.list-group-item.active, .list-group-item.active:hover, .list-group-item.active:focus { background: #A51C30; border-color: #A51C30; }
+.tocify .list-group-item { color: #2A1E21; }
+.box { background: #FFFFFF; border: 1px solid #E8D3D7; border-left: 6px solid #A51C30; border-radius: 8px; padding: 14px 18px; margin: 18px 0; }
+.box.slate { border-left-color: #4A6272; }
+.box p:last-child, .box ul:last-child { margin-bottom: 0; }
+.dl { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 6px; }
+a.dl-btn, a.dl-btn:visited { display: inline-block; background: #A51C30; color: #FFFFFF; padding: 10px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; }
+a.dl-btn:hover { background: #7E1526; color: #FFFFFF; }
+.two { display: flex; gap: 18px; flex-wrap: wrap; }
+.two > div { flex: 1 1 380px; }
+.do { border-top: 6px solid #4A6272; }
+.dont { border-top: 6px solid #A51C30; }
+.card { background: #FFFFFF; border: 1px solid #E8D3D7; border-radius: 8px; padding: 14px 18px; }
+.card h3 { margin-top: 4px; }
+.tag { display: inline-block; background: #F7ECEE; color: #7E1526; border-radius: 999px; padding: 2px 10px; font-size: 13px; font-weight: 600; margin-right: 6px; }
+details { background: #FFFFFF; border: 1px solid #E8D3D7; border-radius: 8px; padding: 10px 16px; margin: 12px 0; }
+details[open] { border-left: 6px solid #A51C30; }
+summary { cursor: pointer; font-weight: 600; color: #A51C30; }
+@media print { #TOC, .tocify { display: none; } .col-md-9 { width: 100%; } details { display: block; } }
+```
+
+<div class="box">
+**One file for the whole session.** Everything you need to follow along is on this page: the prompts
+we'll use, the codebook, the Spot the bug exercise, and a checklist to keep. The dataset file and analysis file should be downloaded and put in the same location as this file on your computer if you'd like to run R code.
+
+# 1. Before you start
+
+**Everyone needs** a laptop, your School AI Sandbox login, and the dataset above
+(`nhanes_workshop.csv`). This is public data from the NHANES R package, so it is safe
+to upload.
+
+**If you use R**, save the R Markdown file (`workshop3_analysis.Rmd`) in the **same
+folder** as the dataset. Open it in RStudio and run this once in the Console:
+
+```r
+install.packages(c("tidyverse", "gtsummary", "flextable", "broom", "rmarkdown"))
+```
+
+<div class="box slate">
+**New to R? Take the no-code track.** Do every exercise in the Sandbox chat only. The
+verification checklist in section 6 applies to you too: you can still check whether
+the numbers are plausible and whether the groups add up.
+</div>
+
+# 2. The framework
+
+A habit loop for any time you use an LLM to help with analysis.
+
+| Step | What you do |
+|---|---|
+| **1. Plan** | Know the question, outcome, exposure, covariates, and why this model, before you ask. |
+| **2. Protect** | Classify the data. Check your DUA and IRB protocol. An approved tool is not an approved use. Unsure? Don't upload. |
+| **3. Prompt** | Context + objective + expected format. Share structure, never records. |
+| **4. Run** | Run the code yourself in R, in an R Markdown file. Read every message and warning. |
+| **5. Verify** | Run the checks in section 6. If one fails, don't use the result. |
+| **6. Own** | Explain every line. Disclose AI use. Have a person review methods and interpretation. |
+
+# 3. Prompts for today
+
+Copy these into the Sandbox when we reach each part. The labels (P1, P2, …) match what
+you'll hear in the session.
+
+## Try it: ask for a mean and SD
+
+**Round 1.** Start a new chat. Turn code execution **off** if your model has that option.
+
+```
+P1
+Here are 25 systolic blood pressure readings:
+130, 118, 100, 119, 96, 90, 120, 148, 114, 130, 99, 124, 131, 130, 148, 98, 118, 114, 113, 134, 116, 143, 158, 112, 110
+
+Don't run any code or use any tools. Just tell me the mean and standard deviation.
+```
+
+**Round 2.** Start another new chat, with code execution **on**.
+
+```
+P2
+Here are 25 systolic blood pressure readings:
+130, 118, 100, 119, 96, 90, 120, 148, 114, 130, 99, 124, 131, 130, 148, 98, 118, 114, 113, 134, 116, 143, 158, 112, 110
+
+Calculate the mean and the sample standard deviation. Show me the exact code you ran and tell me which language it was in.
+```
+
+Enter both answers and your model's name in the poll.
+
+## Demo 1: upload the data (follow along)
+
+Start a new chat and upload `nhanes_workshop.csv`. Use the same chat for P3 to P8.
+After each answer, ask yourself the question in the right-hand column.
+
+| Prompt | Then check |
+|---|---|
+| P3: first look | Rows, columns, types. Is race stored as a number? Anything odd about BMI? |
+| P4: clean and describe | Do the two groups add up to 1,000? Are the means plausible? |
+| P5: plots | Did it mention rows removed because of missing values? |
+| P6: Table 1 | Are categories shown as n (%)? Did it add p-values you didn't ask for? |
+| P7: regressions | How many people are in each model? |
+| P8: interpretation | Any "significant," "risk," or "causes" that the results don't support? |
+
+```
+P3
+I've uploaded a CSV from a study of US adults. Give me an overview of the variables, their types, and any values that look unusual. Then give me the R code to do the same check myself.
+```
+
+```
+P4
+The codebook says: bmi = 999 means missing. race is a categorical variable coded 1 = White, 2 = Black, 3 = Mexican American, 4 = Other Hispanic, 5 = Other/Multiracial. sex is "female"/"male".
+
+Clean the data accordingly. Then give me the number of people, mean age, mean BMI, and mean systolic BP (sbp) by sex, including how many sbp values are missing. Give me the R code too, using the tidyverse.
+```
+
+```
+P5
+Make a histogram of BMI and a scatterplot of BMI vs. systolic BP with a linear trend line, one panel per sex. Then give me the R ggplot2 code to make the same plots.
+```
+
+```
+P6
+Create a Table 1 for a manuscript comparing participants with and without diabetes. Include age, sex, race/ethnicity, education, BMI, systolic BP, physical activity, and smoking. Show means (SD) for continuous variables and n (%) for categorical ones. Give me the R code using gtsummary.
+```
+
+```
+P7
+Fit two models:
+1. A linear regression of systolic BP on BMI, age, sex, and race/ethnicity.
+2. A logistic regression of diabetes on BMI, age, sex, and physical activity, reported as odds ratios.
+Show the results in tables and give me the R code.
+```
+
+```
+P8
+Write a paragraph summarizing these regression results for the Results section of a public health manuscript.
+```
+
+**Using R?** The same analysis, with the checkpoints written in, is in
+`workshop3_analysis.Rmd`. Run it chunk by chunk and compare R's numbers with the chat's.
+
+## Demo 2: when you can't upload the data
+
+Pretend the dataset is an electronic health record extract with protected health
+information. It cannot go in the chat. Describe its **structure** instead, using the
+codebook in section 4.
+
+```
+P9 (template)
+Context: I'm working in R with [tidyverse / base R / gtsummary]. My data frame `[name]` has [N] rows. I can't share the data because of privacy rules. Columns:
+- [variable] ([type], [range or levels], [how missing is coded])
+- ...
+
+Objective: I want [the result you need, e.g. "the mean BMI for people with and without diabetes"].
+
+Format: One commented R code chunk. First, write code that creates a fake 50-row data frame with this exact structure so I can test the code without real data.
+```
+
+<div class="box">
+**Pair activity (4 minutes).** With a partner, fill in P9 for one small analysis. The
+details that matter most are the ones an LLM would otherwise guess:
+
+- text case ("female" vs. "Female")
+- categories stored as numbers (race is 1 to 5)
+- missing-value codes (BMI uses 999)
+</div>
+
+The workflow: **describe** the data, have the LLM **fake** a dataset with the same
+shape, **develop** your code on the fake data, then **run** it on the real data inside
+the approved environment.
+
+## Debugging
+
+Use these after Spot the bug (section 5).
+
+```
+P10
+This R code gives an error. What does the error mean, and how do I fix it?
+[paste the code and the full error message]
+```
+
+```
+P11
+I ran this model and got the output below. Is anything wrong with this regression?
+[paste the code and the output]
+```
+
+```
+P12
+race is coded 1–5 for five racial/ethnic groups. Is it being treated as a categorical variable in this model? If not, what changes?
+```
+
+# 4. Codebook
+
+`nhanes_workshop.csv`: 1,000 adults aged 20 and older from the public NHANES R package
+(2009–2012 survey cycles).
+
+| Variable | Type | Description | Values or units | Missing coded as |
+|---|---|---|---|---|
+| `study_id` | text | Participant ID (made up for this workshop) | P0001–P1000 | none |
+| `age` | number | Age at screening | years, 20–80 (80 = 80 or older) | none |
+| `sex` | text | Sex | "female" or "male" (lowercase) | none |
+| `race` | integer, **categorical** | Race/ethnicity | 1 = White, 2 = Black, 3 = Mexican American, 4 = Other Hispanic, 5 = Other/Multiracial | none |
+| `education` | text | Highest education completed | 8th Grade; 9 - 11th Grade; High School; Some College; College Grad | blank |
+| `bmi` | number | Body mass index | kg/m² | **999** |
+| `sbp` | number | Systolic blood pressure (average of readings) | mmHg | blank |
+| `diabetes` | text | Ever told by a health professional they have diabetes | "No" or "Yes" | blank |
+| `phys_active` | text | Does moderate or vigorous sports, fitness, or recreation | "No" or "Yes" | blank |
+| `ever_smoker` | text | Smoked at least 100 cigarettes in lifetime | "No" or "Yes" | blank |
+
+# 5. Spot the bug
+
+Each chunk below is code an LLM wrote from a prompt that did **not** include the
+codebook. All three have a problem. Only one of them tells you so.
+
+With your partner, for each chunk:
+
+1. Did R complain?
+2. Is the result **plausible**? Check the number of people, the values, and the number of estimates.
+3. What would you change, **in the code or in the prompt**?
+
+## Bug A
+
+> **Prompt:** "Make a scatterplot of BMI vs. systolic blood pressure with a trend line."
+
+```{r bug-a}
+dat %>%
+  ggplot(aes(x = bmi, y = sbp)) %>%
+  geom_point(alpha = 0.3) %>%
+  geom_smooth(method = "lm")
+```
+
+## Bug B
+
+> **Prompt:** "Fit a linear regression of systolic BP on BMI, age, sex, and race."
+
+```{r bug-b}
+fit <- lm(sbp ~ bmi + age + sex + race, data = dat)
+summary(fit)$coefficients %>% round(3)
+```
+
+## Bug C
+
+> **Prompt:** "What is the mean systolic blood pressure for women?"
+
+```{r bug-c}
+dat %>%
+  filter(sex == "Female") %>%
+  summarize(n = n(), mean_sbp = mean(sbp, na.rm = TRUE))
+```
+
+**Discuss:** Which of the three is most likely to end up in a published paper? Why?
+
+# 6. Verify before you trust
+
+Code can run without errors and still be wrong. Only the first check catches a loud
+bug; the other four catch silent ones.
+
+| Check | Ask yourself | In R |
+|---|---|---|
+| **1. Runs cleanly** | Any errors, warnings, or "Removed N rows" messages? | Read the whole console, not just the last line |
+| **2. Right shape** | Right number of rows and columns? Right types? Is a category stored as a number? | `dim()`, `glimpse()`, `nobs(model)` |
+| **3. Plausible values** | Right orders of magnitude? Do totals add up? Codes like 999 hiding as data? | `summary()`, `View()` then sort, `colSums(is.na(dat))` |
+| **4. Known answer** | Does the code give the right answer on 6 rows you can check by hand? | A small `tibble()` test |
+| **5. Right question** | Does this model answer my research question? Is the interpretation right? | Your training, your advisor |
+
+<div class="box">
+**Text vs. numbers.** An LLM predicts numbers one chunk of digits at a time; it doesn't
+calculate them. Trust numbers that code printed. Check numbers the LLM typed.
+</div>
+
+# 7. Dos and don'ts
+
+<div class="two">
+<div class="card do">
+### Do
+- Describe your data's structure (codebook, column names and types) instead of pasting records.
+- Say what you want, not how. Let the model pick functions, then look them up with `?function_name`.
+- Ask: "What assumptions does this test require, and how do I check them?"
+- Read every warning and check the number of people at every step.
+- Test the code on a tiny dataset where you know the answer.
+- Keep everything in a reproducible R Markdown file, including the prompts you used.
+- Ask your advisor or a statistician about model choice and interpretation.
+</div>
+<div class="card dont">
+### Don't
+- Upload PHI, restricted, or DUA-covered data, not even "just the first few rows."
+- Report numbers the model typed in its reply. Report only what your code printed.
+- Accept "significant," "causes," or "strong effect" without checking.
+- Submit code you can't explain line by line.
+- Assume two runs or two models give the same answer.
+- Let the LLM choose your statistical method.
+- Skip learning R because an LLM can write it. You can't check what you don't understand.
+</div>
+</div>
+
+# 8. Who to ask
+
+| Ask the LLM | Read the documentation | Ask a person |
+|---|---|---|
+| "How do I do X in R?" | Exactly what a function does (`?function_name`) | Which test or model to use |
+| Decoding an error message | Every argument, not just the common ones | Interpreting your results |
+| Writing repetitive code | Package vignettes (`browseVignettes()`) | Study design and sample size |
+| Explaining code you wrote | Whether syntax is current or deprecated | Anything involving data you can't share |
+
+People to ask include your advisor, TAs, and Biostatistics office hours.
+
+# 9. Answers
+
+Open these after we've gone over each exercise together.
+
+<details>
+<summary>Try it: the true mean and SD</summary>
+
+Mean = **120.52**; sample SD (n − 1) = **17.41**. If a model said 17.06, it gave the
+population SD without saying so. Even a correct Round 1 answer was a prediction, not a
+calculation.
+
+</details>
+
+<details>
+<summary>Bug A: the loud one</summary>
+
+ggplot layers are joined with `+`, not a pipe. R stops and even says so: "Did you use
+`%>%` or `%>%` instead of `+`?" Fix:
+
+```r
+ggplot(dat, aes(x = bmi, y = sbp)) + geom_point(alpha = 0.3) + geom_smooth(method = "lm")
+```
+
+Loud errors are the easy ones: paste the error into an LLM and it will usually fix it.
+
+</details>
+
+<details>
+<summary>Bug B: the silent one that changes the story</summary>
+
+`race` is stored as the numbers 1 to 5, so `lm()` treated it as a continuous variable
+and estimated one slope "per unit of race." The only clue is that there's **one** race
+row where there should be **four** (one per group compared with White).
+
+| | Race as a number (bug) | Race as a category (correct) |
+|---|---|---|
+| BMI | 0.19, p = 0.016 | 0.14, p = 0.076 |
+| Black vs. White | hidden | +5.0 mmHg (95% CI 2.1 to 7.9) |
+| Headline a reader takes away | "BMI matters; race doesn't" | "BMI uncertain; a clear Black–White difference" |
+
+One mis-coded variable reversed the BMI finding and hid a health disparity, with no
+error or warning. Fix: `mutate(race = factor(race, levels = 1:5, labels = c(...)))`
+before modeling, or tell the LLM in the prompt that race is categorical.
+
+</details>
+
+<details>
+<summary>Bug C: the silent one that returns nothing</summary>
+
+The data use lowercase `"female"`. The LLM guessed `"Female"`, the filter matched 0
+rows, and the mean of nothing is `NaN`. No error, no warning. With `"female"`: n = 511,
+mean systolic BP about 119 mmHg. Check the number of people at every step, and paste
+`count(dat, sex)` output (structure, not records) into your prompt.
+
+</details>
+
+# 10. Sources
+
+- Della Vedova C. Four best practices for using ChatGPT/Claude as an effective R
+  assistant. *Bull Dial Domic.* 2026;9(2).
+  [doi:10.25796/bdd.v9i2.87112](https://doi.org/10.25796/bdd.v9i2.87112)
+- Harvard data classification levels:
+  [privsec.harvard.edu/classify-risk](https://privsec.harvard.edu/classify-risk)
+- Data: `NHANES` R package (National Health and Nutrition Examination Survey,
+  2009–2012), subset of 1,000 adults with teaching modifications (999 codes, numeric
+  race codes).

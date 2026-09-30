@@ -1,0 +1,318 @@
+---
+title: "Prompt, Run, Verify"
+subtitle: "Analysis walkthrough · Workshop 3: Using LLMs for Data Analysis in Public Health"
+author: "Heather Mattie, PhD · Harvard T.H. Chan School of Public Health"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+  word_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = TRUE,
+                      fig.width = 7, fig.height = 4.5, dpi = 150)
+crimson <- "#A51C30"
+```
+
+```{css, echo=FALSE}
+body { font-family: 'IBM Plex Sans', Arial, sans-serif; color: #2A1E21; background: #FCFAF8; font-size: 16px; line-height: 1.6; }
+h1, h2, h3, .title { font-family: 'Source Serif 4', Georgia, serif; color: #2A1E21; }
+h1.title { color: #A51C30; font-size: 40px; }
+h1 { border-bottom: 3px solid #A51C30; padding-bottom: 6px; margin-top: 40px; font-size: 30px; }
+.subtitle, .author, .date { color: #5F5256; }
+a, a:visited { color: #A51C30; }
+pre, code { font-family: 'JetBrains Mono', 'Courier New', monospace; }
+pre { background: #F7ECEE; border: 1px solid #E8D3D7; border-radius: 8px; }
+pre:not([class]) { background: #FFFFFF; }
+blockquote { border-left: 4px solid #A51C30; background: #F7ECEE; color: #2A1E21; font-size: 16px; border-radius: 0 8px 8px 0; }
+.list-group-item.active, .list-group-item.active:hover, .list-group-item.active:focus { background: #A51C30; border-color: #A51C30; }
+.tocify .list-group-item { color: #2A1E21; }
+.btn-default { border-color: #E8D3D7; color: #A51C30; }
+.checkpoint { background: #FFFFFF; border: 1px solid #E8D3D7; border-left: 6px solid #A51C30; border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+```
+
+> **How to use this file.** Every code chunk below is the kind of code an LLM will
+> happily write for you. The *text* between the chunks is the part the LLM can't do for
+> you: noticing what is wrong. Run each chunk with the green arrow and read the
+> output before moving on. Click **Knit** to turn the whole file into a report.
+>
+> **First time?** Put this file and `nhanes_workshop.csv` in the same folder, open the
+> file in RStudio, and run this once in the Console:
+> `install.packages(c("tidyverse", "gtsummary", "flextable", "broom", "rmarkdown"))`
+
+```{r packages}
+library(tidyverse)   # data import, wrangling, ggplot2
+library(gtsummary)   # Table 1 and regression tables
+library(flextable)   # export tables to Word / PowerPoint
+library(broom)       # tidy model output
+```
+
+# 1. Import and first look
+
+**Data:** 1,000 adults sampled from the public `NHANES` R package (2009–2012 survey
+cycles), reshaped to look like a typical study extract. The codebook is in section 4 of the Student Guide.
+
+```{r import}
+dat_raw <- read_csv("nhanes_workshop.csv", show_col_types = FALSE)
+glimpse(dat_raw)
+```
+
+**Checkpoint (check 2: right dimensions and types?).** 1,000 rows, 10 columns — good.
+But `race` is stored as a number (`dbl`). It is a *category* coded 1–5. R does not
+know that, and neither will the LLM unless you tell it.
+
+```{r summary-raw}
+summary(dat_raw)
+```
+
+**Checkpoint (check 3: plausible values?).** Mean BMI is about 37.6. That alone might
+not set off alarms — but the **maximum is 999**. That's a missing-value code, not a
+person. The mean was quietly inflated by 9 fake values.
+
+```{r count-999}
+dat_raw |> count(bmi == 999)
+```
+
+# 2. Clean — the step that needs *you*
+
+These decisions come from the codebook and your domain knowledge, not from the LLM.
+
+```{r clean}
+dat <- dat_raw |>
+  mutate(
+    bmi  = na_if(bmi, 999),                       # 999 = missing (codebook)
+    race = factor(race, levels = 1:5,
+                  labels = c("White", "Black", "Mexican American",
+                             "Other Hispanic", "Other/Multiracial")),
+    sex  = factor(sex, levels = c("female", "male"),
+                  labels = c("Female", "Male")),
+    education = factor(education,
+                       levels = c("8th Grade", "9 - 11th Grade", "High School",
+                                  "Some College", "College Grad")),
+    diabetes    = factor(diabetes,    levels = c("No", "Yes")),
+    phys_active = factor(phys_active, levels = c("No", "Yes")),
+    ever_smoker = factor(ever_smoker, levels = c("No", "Yes"))
+  )
+
+summary(dat$bmi)   # now plausible: max 62.8, 9 NA
+```
+
+# 3. Descriptive statistics
+
+```{r descriptives}
+dat |>
+  group_by(sex) |>
+  summarize(n        = n(),
+            mean_age = mean(age),
+            mean_bmi = mean(bmi, na.rm = TRUE),
+            mean_sbp = mean(sbp, na.rm = TRUE),
+            n_missing_sbp = sum(is.na(sbp)))
+```
+
+**Checkpoint.** Do the group sizes add to 1,000? Are missing values counted, not
+silently dropped?
+
+# 4. Visualizations
+
+```{r fig-bmi-hist}
+ggplot(dat, aes(x = bmi)) +
+  geom_histogram(binwidth = 2, fill = crimson, color = "white") +
+  labs(x = "BMI (kg/m2)", y = "Number of participants",
+       title = "Distribution of BMI") +
+  theme_minimal()
+```
+
+```{r fig-bmi-sbp}
+ggplot(dat, aes(x = bmi, y = sbp)) +
+  geom_point(alpha = 0.35, color = "#5F5256") +
+  geom_smooth(method = "lm", se = TRUE, color = crimson, fill = "#E8D3D7") +
+  facet_wrap(~ sex) +
+  labs(x = "BMI (kg/m2)", y = "Systolic blood pressure (mmHg)",
+       title = "BMI and systolic blood pressure, by sex") +
+  theme_minimal()
+```
+
+Notice the warning about removed rows: R is telling you some rows had missing BMI or
+SBP. **Read warnings; don't scroll past them.**
+
+```{r fig-diabetes-activity}
+dat |>
+  count(phys_active, diabetes) |>
+  group_by(phys_active) |>
+  mutate(pct = n / sum(n)) |>
+  filter(diabetes == "Yes") |>
+  ggplot(aes(x = phys_active, y = pct)) +
+  geom_col(fill = crimson, width = 0.6) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Physically active", y = "Diabetes prevalence",
+       title = "Diabetes prevalence by physical activity") +
+  theme_minimal()
+```
+
+# 5. Table 1
+
+```{r table1}
+table1 <- dat |>
+  select(age, sex, race, education, bmi, sbp, phys_active, ever_smoker, diabetes) |>
+  tbl_summary(
+    by = diabetes,
+    label = list(age ~ "Age (years)", sex ~ "Sex", race ~ "Race/ethnicity",
+                 education ~ "Education", bmi ~ "BMI (kg/m2)",
+                 sbp ~ "Systolic BP (mmHg)", phys_active ~ "Physically active",
+                 ever_smoker ~ "Smoked 100+ cigarettes"),
+    statistic = list(all_continuous() ~ "{mean} ({sd})"),
+    missing_text = "Missing"
+  ) |>
+  add_overall() |>
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Diabetes**") |>
+  bold_labels()
+
+table1 |> as_flex_table()
+```
+
+**Checkpoint (domain check).** Should Table 1 include p-values? Many journals and
+methodologists (e.g., CONSORT for trials) say no. The LLM will add them if you ask,
+and often if you don't. That's a *judgment call*, not a coding question.
+
+# 6. Regression models
+
+## Linear regression: systolic BP
+
+```{r lm-sbp}
+fit_lm <- lm(sbp ~ bmi + age + sex + race, data = dat)
+
+tbl_regression(fit_lm,
+               label = list(bmi ~ "BMI (per 1 kg/m2)", age ~ "Age (per year)",
+                            sex ~ "Sex", race ~ "Race/ethnicity")) |>
+  add_glance_source_note(include = c(nobs, r.squared)) |>
+  as_flex_table()
+```
+
+**Checkpoint (check 2 again).** Table 1 has 1,000 people. How many are in the model?
+
+```{r nobs}
+nobs(fit_lm)
+```
+
+Rows with missing BMI or SBP were dropped (complete-case analysis). That should be
+reported in your methods, and it is a choice worth discussing with your advisor.
+
+## Logistic regression: diabetes
+
+```{r glm-diabetes}
+fit_glm <- glm(diabetes ~ bmi + age + sex + phys_active,
+               data = dat, family = binomial)
+
+tbl_regression(fit_glm, exponentiate = TRUE,
+               label = list(bmi ~ "BMI (per 1 kg/m2)", age ~ "Age (per year)",
+                            sex ~ "Sex", phys_active ~ "Physically active")) |>
+  as_flex_table()
+```
+
+**Checkpoint (interpretation).** These are odds ratios, not risk ratios. With about 9%
+prevalence the two are close here, but the gap grows as an outcome gets more common, and
+an LLM summary rarely checks. The data are cross-sectional: associations, not effects.
+LLM summaries often blur both.
+
+# 7. Check 4: test on a tiny example with a known answer
+
+```{r mini-test}
+test <- tibble(
+  sex = c("F", "F", "F", "M", "M", "M"),
+  sbp = c(120, 130, NA, 140, 150, 160)
+)
+# Expected by hand: F = 125, M = 150
+test |> group_by(sex) |> summarize(mean_sbp = mean(sbp, na.rm = TRUE))
+```
+
+If this returned 83.3 for F, the code would be treating NA as 0. You found the bug on
+6 rows instead of in your manuscript.
+
+# 8. Text vs. numbers demo
+
+These are the 25 values from the "Try it" exercise. Paste them into a chat **with code
+execution turned off** and ask for the mean and standard deviation. Then compare with
+what R computes below.
+
+```{r numbers-demo}
+set.seed(27)
+bp25 <- dat |> filter(!is.na(sbp)) |> slice_sample(n = 25) |> pull(sbp)
+cat(bp25, sep = ", ")
+c(mean = mean(bp25), sd = sd(bp25))
+```
+
+The model predicts digits that *look like* a mean. Code computes one.
+
+# 9. The no-upload path (restricted data)
+
+When data can't leave approved systems, give the LLM the **structure**, not the
+**data**. Example prompt:
+
+> **Context:** I'm working in R with the tidyverse and gtsummary. My data frame `dat`
+> has 1,000 rows. Columns: `age` (numeric, 20–80), `sex` (character: "female"/"male",
+> lowercase), `race` (integer 1–5; 1=White, 2=Black, 3=Mexican American, 4=Other
+> Hispanic, 5=Other/Multiracial), `bmi` (numeric; 999 = missing), `sbp` (numeric, some NA),
+> `diabetes` ("No"/"Yes").
+> **Objective:** Create a Table 1 comparing participants with and without diabetes,
+> and fit a linear regression of `sbp` on `bmi`, `age`, `sex`, and `race`.
+> **Format:** One commented R code chunk. First, write code that creates a fake
+> 50-row data frame with this exact structure so I can test the code without real data.
+
+Below is the kind of fake-data code the LLM returns. You develop against it, then run
+the finished code on the real data **inside the approved environment**.
+
+```{r synthetic}
+set.seed(1)
+fake <- tibble(
+  age      = sample(20:80, 50, replace = TRUE),
+  sex      = sample(c("female", "male"), 50, replace = TRUE),
+  race     = sample(1:5, 50, replace = TRUE),
+  bmi      = c(round(rnorm(48, 28, 6), 1), 999, 999),
+  sbp      = c(round(rnorm(48, 120, 15)), NA, NA),
+  diabetes = sample(c("No", "Yes"), 50, replace = TRUE, prob = c(.9, .1))
+)
+glimpse(fake)
+```
+
+Note what made this work: the prompt said "lowercase," "999 = missing," and "integer
+1–5." Leave those out and the code will run and be wrong (see Spot the bug in section 5 of the Student Guide).
+
+# 10. Exporting results
+
+Same source, many outputs:
+
+```{r export, eval=TRUE}
+dir.create("output", showWarnings = FALSE)
+
+# Table 1 -> Word and PowerPoint
+table1 |> as_flex_table() |> save_as_docx(path = "output/table1.docx")
+table1 |> as_flex_table() |> save_as_pptx(path = "output/table1.pptx")
+
+# Regression table -> Word
+tbl_regression(fit_lm) |> as_flex_table() |>
+  save_as_docx(path = "output/regression_sbp.docx")
+
+# Figure -> PNG (for slides) and PDF (for journals)
+p <- ggplot(dat, aes(bmi, sbp)) + geom_point(alpha = .35, color = "#5F5256") +
+  geom_smooth(method = "lm", color = crimson, fill = "#E8D3D7") + theme_minimal() +
+  labs(x = "BMI (kg/m2)", y = "Systolic BP (mmHg)")
+ggsave("output/bmi_sbp.png", p, width = 6, height = 4, dpi = 300)
+ggsave("output/bmi_sbp.pdf", p, width = 6, height = 4)
+
+# Clean data -> CSV
+write_csv(dat, "output/nhanes_clean.csv")
+
+list.files("output")
+```
+
+**Why this beats downloading a .docx from the chat window:** this file reruns from raw
+data to final tables. When a reviewer asks you to drop 20 participants, you change one
+line and knit again.
+
+```{r session-info}
+sessionInfo()
+```
